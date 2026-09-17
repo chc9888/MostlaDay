@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- TITLE -->
+    <title>Hand Harmony</title>
+    <!-- STYLESHEET -->
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <!-- SCRIPTS -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.min.js"></script>
+    <script src="https://unpkg.com/ml5@1.0.1/dist/ml5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <!-- FONT -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400..700&display=swap');
+    </style>
+</head>
+
+<body>
+    <main>
+        <!-- HEADER -->
+        <header>
+            <h1>Hand Harmony</h1>
+        </header>
+        <!-- PAGE DIV -->
+        <div id="page">
+            <!-- LEFT DIV -->
+            <div id="leftDiv">
+                <!-- SCALE CONTROL -->
+                <div id="scaleControl">
+                    <label>Choose the musical Scale:</label>
+                    <select id="scaleSelect">
+                        <option value="major">C Major</option>
+                        <option value="minor">C Minor</option>
+                        <option value="pentatonic">C Pentatonic</option>
+                        <option value="blues">C Blues</option>
+                        <option value="dorian">C Dorian</option>
+                    </select>
+                </div>
+                <!-- HOW TO PLAY INSTRUCTIONS -->
+                <div id="info">
+                    <h2>How to play:</h2>
+                    <p>← Move hand LEFT/RIGHT →: Change note</p>
+                    <p>↑ Move hand UP/DOWN ↓: Change octave</p>
+                </div>
+            </div>
+
+            <!-- MIDDLE DIV -->
+            <div id="middleDiv">
+                <button id="startBtn">Start</button>
+            </div>
+
+            <!-- RIGHT DIV -->
+            <div id="rightDiv">
+                <!-- Status text -->
+                <div id="status">Loading hand pose model...</div>
+                <!-- P5 script -->
+                <script src="sketch.js"></script>
+            </div>
+        </div>
+
+        <footer>
+            <p>By Helena Cobo</p>
+            <p>Connections Lab final project - IMA Low Res Fall 2025</p>
+        </footer>
+    </main>
+</body>
+
+</html>
