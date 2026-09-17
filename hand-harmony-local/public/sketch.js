@@ -24,13 +24,9 @@ let scales = {
     dorian: ['C4', 'D4', 'Eb4', 'F4', 'G4', 'A4', 'Bb4']
 };
 
-// Colors assigned per detected person (up to 4)
-const personColors = [
-    [255, 200, 100], // Orange
-    [100, 200, 255], // Blue
-    [100, 255, 150], // Green
-    [255, 100, 200]  // Pink
-];
+// Single color for every tracked hand (MoveNet's per-person index isn't
+// stable between frames, so per-person colors would flicker/swap anyway)
+const HAND_COLOR = [255, 200, 100];
 
 const MAX_PEOPLE = 4;
 const MIN_CONFIDENCE = 0.1;
@@ -121,7 +117,6 @@ function draw() {
         let people = poses.slice(0, MAX_PEOPLE);
         for (let p = 0; p < people.length; p++) {
             let pose = people[p];
-            let color = personColors[p];
 
             let wrists = { left: getHandPoint(pose, 'left'), right: getHandPoint(pose, 'right') };
             for (let side in wrists) {
@@ -137,7 +132,7 @@ function draw() {
 
                 activeZones.push({ zone: zone, octave: octave });
 
-                drawWrist(wrist.x, wrist.y, color);
+                drawWrist(wrist.x, wrist.y, HAND_COLOR);
                 playNoteForHand(key, zone, octave);
             }
         }
