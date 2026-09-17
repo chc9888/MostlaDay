@@ -123,7 +123,7 @@ function draw() {
             let pose = people[p];
             let color = personColors[p];
 
-            let wrists = { left: pose.leftWrist, right: pose.rightWrist };
+            let wrists = { left: pose.left_wrist, right: pose.right_wrist };
             for (let side in wrists) {
                 let wrist = wrists[side];
                 if (!wrist || wrist.confidence < MIN_CONFIDENCE) continue;
