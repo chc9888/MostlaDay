@@ -123,7 +123,7 @@ function draw() {
             let pose = people[p];
             let color = personColors[p];
 
-            let wrists = { left: pose.left_wrist, right: pose.right_wrist };
+            let wrists = { left: getHandPoint(pose, 'left'), right: getHandPoint(pose, 'right') };
             for (let side in wrists) {
                 let wrist = wrists[side];
                 if (!wrist || wrist.confidence < MIN_CONFIDENCE) continue;
@@ -241,6 +241,29 @@ function drawWrist(x, y, color = [255, 200, 100]) {
 
 function getZone(x) {
     return constrain(floor(x / zoneWidth), 0, numZones - 1);
+}
+
+// MoveNet only gives a wrist joint, not a hand center, so approximate the
+// palm by extending past the wrist along the forearm's direction.
+const HAND_OFFSET = 40;
+
+function getHandPoint(pose, side) {
+    let wrist = pose[side + '_wrist'];
+    if (!wrist || wrist.confidence < MIN_CONFIDENCE) return wrist;
+
+    let elbow = pose[side + '_elbow'];
+    if (!elbow || elbow.confidence < MIN_CONFIDENCE) return wrist;
+
+    let dx = wrist.x - elbow.x;
+    let dy = wrist.y - elbow.y;
+    let len = Math.sqrt(dx * dx + dy * dy);
+    if (len === 0) return wrist;
+
+    return {
+        x: wrist.x + (dx / len) * HAND_OFFSET,
+        y: wrist.y + (dy / len) * HAND_OFFSET,
+        confidence: wrist.confidence
+    };
 }
 
 function playNoteForHand(key, zone, octave) {
