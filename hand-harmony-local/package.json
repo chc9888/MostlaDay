@@ -1,0 +1,12 @@
+{
+  "name": "hand-harmony-local",
+  "version": "1.0.0",
+  "description": "Local multiplayer hand-controlled orchestra for up to four people on one camera",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
