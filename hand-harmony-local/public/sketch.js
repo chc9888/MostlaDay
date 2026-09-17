@@ -29,7 +29,10 @@ let scales = {
 const HAND_COLOR = [255, 200, 100];
 
 const MAX_PEOPLE = 4;
-const MIN_CONFIDENCE = 0.1;
+// MoveNet keeps reporting a low-confidence "best guess" position for a
+// keypoint even when it's occluded or off-frame, so this needs to be high
+// enough to actually drop a hand once it's no longer visible.
+const MIN_CONFIDENCE = 0.35;
 
 // Canvas zones (7 parts for 7 notes)
 const numZones = 7;
