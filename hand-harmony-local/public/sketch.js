@@ -12,10 +12,8 @@ let piano;
 let pianoGain;
 let reverb;
 
-// Per-hand playing state, keyed by "<personIndex>_<left|right>"
-let handStates = {};
-
-// Musical scales
+// Musical scales (the octave digit is relative: "4" means the octave of the
+// row the hand is in, "5" means one above it)
 let scales = {
     major: ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4'],
     minor: ['C4', 'D4', 'Eb4', 'F4', 'G4', 'Ab4', 'Bb4'],
@@ -24,15 +22,27 @@ let scales = {
     dorian: ['C4', 'D4', 'Eb4', 'F4', 'G4', 'A4', 'Bb4']
 };
 
-// Single color for every tracked hand (MoveNet's per-person index isn't
-// stable between frames, so per-person colors would flicker/swap anyway)
-const HAND_COLOR = [255, 200, 100];
+// Palette
+const DARK = [13, 50, 102];    // #0d3266
+const LIGHT = [175, 225, 224]; // #afe1e0
 
 const MAX_PEOPLE = 4;
 // MoveNet keeps reporting a low-confidence "best guess" position for a
 // keypoint even when it's occluded or off-frame, so this needs to be high
 // enough to actually drop a hand once it's no longer visible.
 const MIN_CONFIDENCE = 0.35;
+
+// Hand tracking across frames. MoveNet's person order isn't stable between
+// frames, so hands are matched to the nearest hand from the previous frame
+// instead of being identified by person index.
+const MATCH_DISTANCE = 120; // px a hand may move between frames and still be "the same hand"
+const MISS_GRACE_FRAMES = 2; // frames a hand may go undetected before its note stops
+let trackedHands = [];       // { id, x, y, missed, note }
+let nextHandId = 0;
+
+// How many hands are currently holding each pitch, so one hand leaving
+// doesn't silence another hand on the same note.
+let noteHolders = {};
 
 // Canvas zones (7 parts for 7 notes)
 const numZones = 7;
@@ -104,72 +114,95 @@ function draw() {
     image(video, 0, 0, width, height);
     pop();
 
-    let instructions = null;
+    // Light navy wash so the grid and labels read over any background
+    noStroke();
+    fill(DARK[0], DARK[1], DARK[2], 70);
+    rect(0, 0, width, height);
 
     if (poses.length > 0 && audioStarted) {
-        instructions = 'Press "Stop" to stop playing';
-        textAlign(CENTER, CENTER);
-        textSize(14);
-        fill(255, 255, 255, 200);
-        noStroke();
-        text(instructions, width / 2, height - (height / 10));
+        updateTrackedHands(detectHands());
 
         let activeZones = [];
-        let activeKeys = new Set();
+        for (let hand of trackedHands) {
+            if (hand.missed > 0) continue; // holding through a brief dropout
 
-        let people = poses.slice(0, MAX_PEOPLE);
-        for (let p = 0; p < people.length; p++) {
-            let pose = people[p];
+            let zone = getZone(hand.x);
+            let octave = constrain(5 - Math.floor(hand.y / (height / 3)), 3, 5);
+            let note = noteFor(zone, octave);
 
-            let wrists = { left: getHandPoint(pose, 'left'), right: getHandPoint(pose, 'right') };
-            for (let side in wrists) {
-                let wrist = wrists[side];
-                if (!wrist || wrist.confidence < MIN_CONFIDENCE) continue;
-
-                let key = `${p}_${side}`;
-                activeKeys.add(key);
-
-                let zone = getZone(wrist.x);
-                let octave = 5 - Math.floor(wrist.y / (height / 3));
-                octave = constrain(octave, 3, 5);
-
-                activeZones.push({ zone: zone, octave: octave });
-
-                drawWrist(wrist.x, wrist.y, HAND_COLOR);
-                playNoteForHand(key, zone, octave);
-            }
-        }
-
-        // Stop notes for hands that disappeared or dropped confidence
-        for (let key in handStates) {
-            if (!activeKeys.has(key)) {
-                stopNoteForHand(key);
-            }
+            activeZones.push({ zone: zone, note: note });
+            drawHand(hand.x, hand.y);
+            setHandNote(hand, note);
         }
 
         drawZones(activeZones);
-
+        drawMessage('Press "Stop" to stop playing', height - height / 10, 14);
     } else {
         drawZones();
         stopAllNotes();
 
-        textAlign(CENTER, CENTER);
-        textSize(18);
-        fill(255, 255, 255, 200);
-        noStroke();
-
         if (!audioStarted) {
-            instructions = 'Click "Start" to play';
+            drawMessage('Click "Start" to play', height / 2, 18);
         } else {
-            instructions = 'Move your hands in front of the camera (up to 4 people)';
+            drawMessage('Move your hands in front of the camera (up to 4 people)', height / 2, 18);
         }
+    }
+}
 
-        text(instructions, width / 2, height / 2);
+// Every confidently detected hand in this frame, as {x, y}.
+function detectHands() {
+    let detections = [];
+    for (let pose of poses.slice(0, MAX_PEOPLE)) {
+        for (let side of ['left', 'right']) {
+            let point = getHandPoint(pose, side);
+            if (point && point.confidence >= MIN_CONFIDENCE) {
+                detections.push({ x: point.x, y: point.y });
+            }
+        }
+    }
+    return detections;
+}
+
+// Match this frame's detections to last frame's hands, closest pairs first.
+function updateTrackedHands(detections) {
+    let pairs = [];
+    for (let t = 0; t < trackedHands.length; t++) {
+        for (let d = 0; d < detections.length; d++) {
+            let distance = dist(trackedHands[t].x, trackedHands[t].y, detections[d].x, detections[d].y);
+            if (distance <= MATCH_DISTANCE) pairs.push({ t, d, distance });
+        }
+    }
+    pairs.sort((a, b) => a.distance - b.distance);
+
+    let matchedHands = new Set();
+    let usedDetections = new Set();
+    for (let { t, d } of pairs) {
+        if (matchedHands.has(t) || usedDetections.has(d)) continue;
+        matchedHands.add(t);
+        usedDetections.add(d);
+        trackedHands[t].x = detections[d].x;
+        trackedHands[t].y = detections[d].y;
+        trackedHands[t].missed = 0;
+    }
+
+    // Hands that weren't seen this frame: wait a couple of frames, then let go
+    for (let t = 0; t < trackedHands.length; t++) {
+        if (!matchedHands.has(t)) trackedHands[t].missed++;
+    }
+    for (let hand of trackedHands) {
+        if (hand.missed > MISS_GRACE_FRAMES) setHandNote(hand, null);
+    }
+    trackedHands = trackedHands.filter(hand => hand.missed <= MISS_GRACE_FRAMES);
+
+    // New hands
+    for (let d = 0; d < detections.length; d++) {
+        if (usedDetections.has(d)) continue;
+        trackedHands.push({ id: nextHandId++, x: detections[d].x, y: detections[d].y, missed: 0, note: null });
     }
 }
 
 function drawZones(activeZones = []) {
-    stroke(255, 255, 255, 100);
+    stroke(LIGHT[0], LIGHT[1], LIGHT[2], 110);
     strokeWeight(2);
 
     // Note lines
@@ -184,7 +217,7 @@ function drawZones(activeZones = []) {
         line(0, y, width, y);
     }
 
-    // Draw note labels at top of each zone
+    // Note labels at top of each zone
     noStroke();
     textAlign(CENTER, TOP);
     textSize(24);
@@ -193,45 +226,39 @@ function drawZones(activeZones = []) {
     const baseNotes = scales[currentScale];
     for (let i = 0; i < numZones; i++) {
         let x = i * zoneWidth + zoneWidth / 2;
+        let active = activeZones.find(z => z.zone === i);
 
-        let isActive = false;
-        let activeOctave = null;
-
-        for (let j = 0; j < activeZones.length; j++) {
-            if (activeZones[j].zone === i) {
-                isActive = true;
-                activeOctave = activeZones[j].octave;
-                break;
-            }
-        }
-
-        let baseNote = baseNotes[i];
-        let noteName = baseNote.replace(/[0-9]/g, '');
-
-        let displayText = noteName;
-
-        if (isActive) {
-            fill(255, 200, 100);
-            displayText = noteName + activeOctave;
+        if (active) {
+            fill(LIGHT[0], LIGHT[1], LIGHT[2]);
+            rect(i * zoneWidth + 4, 4, zoneWidth - 8, 36, 8);
+            fill(DARK[0], DARK[1], DARK[2]);
+            text(active.note, x, 10);
         } else {
-            fill(255, 255, 255, 200);
-            displayText = noteName;
+            fill(LIGHT[0], LIGHT[1], LIGHT[2], 220);
+            text(splitNote(baseNotes[i]).name, x, 10);
         }
-
-        text(displayText, x, 10);
     }
+    textStyle(NORMAL);
 }
 
-function drawWrist(x, y, color = [255, 200, 100]) {
+function drawMessage(message, y, size) {
+    textAlign(CENTER, CENTER);
+    textSize(size);
     noStroke();
-    fill(color[0], color[1], color[2], 80);
+    fill(LIGHT[0], LIGHT[1], LIGHT[2], 230);
+    text(message, width / 2, y);
+}
+
+function drawHand(x, y) {
+    noStroke();
+    fill(LIGHT[0], LIGHT[1], LIGHT[2], 80);
     circle(x, y, 50);
-    fill(color[0], color[1], color[2], 150);
+    fill(LIGHT[0], LIGHT[1], LIGHT[2], 170);
     circle(x, y, 30);
-    fill(255, 255, 255);
+    fill(DARK[0], DARK[1], DARK[2]);
     circle(x, y, 15);
 
-    stroke(color[0], color[1], color[2], 200);
+    stroke(DARK[0], DARK[1], DARK[2], 220);
     strokeWeight(2);
     line(x - 20, y, x + 20, y);
     line(x, y - 20, x, y + 20);
@@ -239,6 +266,18 @@ function drawWrist(x, y, color = [255, 200, 100]) {
 
 function getZone(x) {
     return constrain(floor(x / zoneWidth), 0, numZones - 1);
+}
+
+function splitNote(note) {
+    let match = note.match(/^([A-G][#b]?)(\d)$/);
+    return { name: match[1], octave: parseInt(match[2]) };
+}
+
+// The pitch for a zone in the given octave row, keeping notes written an
+// octave up in the scale (e.g. pentatonic's C5) above the rest.
+function noteFor(zone, octave) {
+    let { name, octave: scaleOctave } = splitNote(scales[currentScale][zone]);
+    return name + (octave + scaleOctave - 4);
 }
 
 // MoveNet only gives a wrist joint, not a hand center, so approximate the
@@ -264,34 +303,30 @@ function getHandPoint(pose, side) {
     };
 }
 
-function playNoteForHand(key, zone, octave) {
-    const baseNotes = scales[currentScale];
-    let baseNote = baseNotes[zone];
-    let noteName = baseNote.replace(/[0-9]/g, '');
-    let note = noteName + octave;
-
-    let state = handStates[key];
-
-    // Only re-trigger if the zone or octave changed for this hand
-    if (!state || state.zone !== zone || state.octave !== octave) {
-        if (state) {
-            piano.triggerRelease(state.note);
-        }
-        piano.triggerAttack(note);
-        handStates[key] = { note: note, zone: zone, octave: octave };
-    }
+// Move a hand to a new note (or to null to stop). Pitches are shared:
+// a pitch starts when its first hand arrives and stops when its last hand leaves.
+function setHandNote(hand, note) {
+    if (hand.note === note) return;
+    if (hand.note) releaseNote(hand.note);
+    if (note) holdNote(note);
+    hand.note = note;
 }
 
-function stopNoteForHand(key) {
-    let state = handStates[key];
-    if (state) {
-        piano.triggerRelease(state.note);
-        delete handStates[key];
+function holdNote(note) {
+    noteHolders[note] = (noteHolders[note] || 0) + 1;
+    if (noteHolders[note] === 1) piano.triggerAttack(note);
+}
+
+function releaseNote(note) {
+    if (!noteHolders[note]) return;
+    noteHolders[note]--;
+    if (noteHolders[note] === 0) {
+        delete noteHolders[note];
+        piano.triggerRelease(note);
     }
 }
 
 function stopAllNotes() {
-    for (let key in handStates) {
-        stopNoteForHand(key);
-    }
+    for (let hand of trackedHands) setHandNote(hand, null);
+    trackedHands = [];
 }
