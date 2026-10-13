@@ -50,7 +50,9 @@ let zoneWidth;
 
 function preload() {
     // MoveNet defaults to MULTIPOSE_LIGHTNING, which tracks several people at once.
-    bodyPose = ml5.bodyPose('MoveNet', { flipped: true, modelType: 'MULTIPOSE_LIGHTNING' });
+    // Keypoints come back unmirrored; mirrorPoint() flips them to match the
+    // mirrored video drawn in draw().
+    bodyPose = ml5.bodyPose('MoveNet', { modelType: 'MULTIPOSE_LIGHTNING' });
 }
 
 function setup() {
@@ -284,11 +286,17 @@ function noteFor(zone, octave) {
 // palm by extending past the wrist along the forearm's direction.
 const HAND_OFFSET = 40;
 
+// Flip a keypoint horizontally so it lines up with the mirrored video.
+function mirrorPoint(point) {
+    if (!point) return point;
+    return { x: width - point.x * (width / video.width), y: point.y * (height / video.height), confidence: point.confidence };
+}
+
 function getHandPoint(pose, side) {
-    let wrist = pose[side + '_wrist'];
+    let wrist = mirrorPoint(pose[side + '_wrist']);
     if (!wrist || wrist.confidence < MIN_CONFIDENCE) return wrist;
 
-    let elbow = pose[side + '_elbow'];
+    let elbow = mirrorPoint(pose[side + '_elbow']);
     if (!elbow || elbow.confidence < MIN_CONFIDENCE) return wrist;
 
     let dx = wrist.x - elbow.x;
